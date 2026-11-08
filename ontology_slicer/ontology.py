@@ -121,17 +121,26 @@ class Ontology:
 
         self.metric_by_name: dict[str, str] = {}
         self.metric_by_alias: dict[str, list[str]] = {}
+        self.metric_by_display: dict[str, list[str]] = {}
         for name, m in metrics.items():
             self.metric_by_name[norm(name)] = name
             for alias in m.aliases:
                 self.metric_by_alias.setdefault(norm(alias), []).append(name)
+            # display 也是本体声明的字段，人和看板都用它，必须可查。
+            # 脏本体里 display 常常没写进别名表（正式名叫「商品件数」，
+            # 别名只写了「件数/销量」），不查它就会把最自然的问法判成不认识。
+            if m.display:
+                self.metric_by_display.setdefault(norm(m.display), []).append(name)
 
         self.property_by_name: dict[str, str] = {}
         self.property_by_alias: dict[str, list[str]] = {}
+        self.property_by_display: dict[str, list[str]] = {}
         for name, p in properties.items():
             self.property_by_name[norm(name)] = name
             for alias in p.aliases:
                 self.property_by_alias.setdefault(norm(alias), []).append(name)
+            if p.display:
+                self.property_by_display.setdefault(norm(p.display), []).append(name)
 
         self.groups: dict[str, list[str]] = {}
         for name, m in metrics.items():

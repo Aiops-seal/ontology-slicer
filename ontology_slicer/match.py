@@ -73,21 +73,36 @@ def resolve(
             )
         hits, how = [tname], "glossary"
     else:
-        # 名字层和别名层合并取候选，不做「命中即停」。
+        # 名字层、display 层、别名层合并取候选，不做「命中即停」。
         #
         # 分开取会让 GMV 这种词被静默判给 gmv —— 它的名字恰好是 gmv，
         # 而 gmv_settle 也把 GMV 声明成了别名。既然两个指标都声称自己叫这个，
         # 那这个词就是有歧义的，正确输出是让上游去问，不是按层级悄悄选一个。
+        #
+        # display 一并查：它和 name、alias 一样是本体写下的字段，不是猜的。
+        # 脏本体里 display 常没进别名表，不查它「商品件数」就对不上。
         if kind == METRIC:
             name_hit = ont.metric_by_name.get(t)
+            display_hits = list(ont.metric_by_display.get(t, ()))
             alias_hits = list(ont.metric_by_alias.get(t, ()))
-            hits = ([name_hit] if name_hit else []) + alias_hits
-            how = "name" if name_hit else ("alias" if alias_hits else "")
+            hits = ([name_hit] if name_hit else []) + display_hits + alias_hits
+            if name_hit:
+                how = "name"
+            elif display_hits:
+                how = "display"
+            else:
+                how = "alias" if alias_hits else ""
         else:
             name_hit = ont.property_by_name.get(t)
+            display_hits = list(ont.property_by_display.get(t, ()))
             alias_hits = list(ont.property_by_alias.get(t, ()))
-            hits = ([name_hit] if name_hit else []) + alias_hits
-            how = "name" if name_hit else ("alias" if alias_hits else "")
+            hits = ([name_hit] if name_hit else []) + display_hits + alias_hits
+            if name_hit:
+                how = "name"
+            elif display_hits:
+                how = "display"
+            else:
+                how = "alias" if alias_hits else ""
 
     if not hits:
         return TermResult(term, kind, UNMATCHED, hint="本体无此词")

@@ -75,9 +75,28 @@ def test_glossary_pointing_at_metric_is_rejected_in_property_slot(ont):
     assert r.hint == "该词指向指标，位置不对"
 
 
-def test_property_alias(ont):
+def test_property_display(ont):
+    """「城市」是 city 的 display；它同时也出现在别名表里，display 层优先报出。"""
     r = resolve(ont, "城市", PROPERTY)
-    assert (r.status, r.name, r.how) == (MATCHED, "city", "alias")
+    assert (r.status, r.name, r.how) == (MATCHED, "city", "display")
+
+
+def test_metric_display_is_matchable_even_when_aliases_omit_it(ont):
+    """脏本体的典型样子：正式名写了 display，别名表只收口语。
+
+    ord_qty 的 display 是「商品件数」，别名只有 件数/销量/ord_qty。
+    不查 display，「商品件数」这个最正式的问法就判成不认识。
+    """
+    r = resolve(ont, "商品件数", METRIC)
+    assert (r.status, r.name, r.how) == (MATCHED, "ord_qty", "display")
+    assert resolve(ont, "件数", METRIC).how in ("alias", "display")
+
+
+def test_display_shared_by_two_metrics_stays_ambiguous(ont):
+    """display 参与匹配不能把歧义抹掉：gmv 与 gmv_settle 的 display 都叫「成交额」。"""
+    r = resolve(ont, "成交额", METRIC)
+    assert r.status == AMBIGUOUS
+    assert r.candidates == ("gmv", "gmv_settle")
 
 
 def test_city_and_city_name_do_not_collide(ont):

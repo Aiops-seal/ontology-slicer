@@ -363,12 +363,18 @@ slice(ontology, intent_params, principal) → view
 
 `glossary[].term` 精确命中就直接取 `maps_to` 指向的目标，`how = "glossary"`。**不再走 glossary，防环。**
 
-**第二阶段——名字与别名合并取候选，不是命中即停。**
+**第二阶段——名字、display、别名合并取候选，不是命中即停。**
 
 | 词出现在 | 取哪些候选 | `how` |
 |---|---|---|
-| `metric_terms` | `metric.name` 命中 ∪ `metric.alias` 命中 | 有名字命中时 `name`，否则 `alias` |
-| `dim_terms` | `property.name` 命中 ∪ `property.alias` 命中 | 同上 |
+| `metric_terms` | `metric.name` ∪ `metric.display` ∪ `metric.alias` | 名字有命中 `name`；否则 display 有命中 `display`；否则 `alias` |
+| `dim_terms` | `property.name` ∪ `property.display` ∪ `property.alias` | 同上 |
+
+`how` 只报**优先级最高那一层**：一个词同时出现在三层时，报 `name` → `display` → `alias`。候选集才是三层并集。
+
+**display 为什么必须查。** 它和 `name`、`alias` 一样是本体写下的字段，人和看板都用它。脏本体里 display 常常没写进别名表——`ord_qty` 的 display 是「商品件数」，别名只收了「件数 / 销量 / ord_qty」。不查 display，用户最正式的那个问法会被判成 `unmatched`，而它明明就写在本体第一行。
+
+这不算「猜」：猜指的是近义扩展、拼音纠错、embedding 找最像。查一个本体已经声明的字段，是搬运。
 
 合并而不是分层命中即停，是踩出来的：
 
