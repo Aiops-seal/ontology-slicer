@@ -1,0 +1,439 @@
+{
+  "version": "1.1",
+  "domain": "ord",
+  "capabilities": {
+    "supports_compare": ["yoy", "mom"],
+    "min_granularity": "day",
+    "max_scan_days": 1800,
+    "dialects_verified": ["sqlite"]
+  },
+  "glossary": [
+    {"term": "销售业绩", "maps_to": "metric:gmv"},
+    {"term": "流水", "maps_to": "metric:gmv"},
+    {"term": "区域", "maps_to": "property:region"},
+    {"term": "店数", "maps_to": "metric:order_cnt"}
+  ],
+  "tables": [
+    {
+      "name": "dwd_order_di",
+      "kind": "fact",
+      "grain": ["order_id"],
+      "layer": "detail",
+      "columns": {
+        "order_id": "string",
+        "store_id": "string",
+        "product_id": "string",
+        "order_date": "date",
+        "channel": "string",
+        "pay_amount": "decimal",
+        "refund_amount": "decimal",
+        "quantity": "int8",
+        "is_valid": "int8"
+      }
+    },
+    {
+      "name": "dwd_settle_di",
+      "kind": "fact",
+      "grain": ["settle_id"],
+      "layer": "detail",
+      "columns": {
+        "settle_id": "string",
+        "order_id": "string",
+        "store_id": "string",
+        "settle_date": "date",
+        "settle_amount": "decimal",
+        "fee_amount": "decimal",
+        "status": "string"
+      }
+    },
+    {
+      "name": "dws_promo_di",
+      "kind": "fact",
+      "grain": ["campaign_id", "store_id", "promo_date"],
+      "layer": "detail",
+      "columns": {
+        "campaign_id": "string",
+        "store_id": "string",
+        "promo_date": "date",
+        "use_amount": "decimal",
+        "order_cnt": "int8"
+      }
+    },
+    {
+      "name": "ads_gmv_1d",
+      "kind": "fact",
+      "grain": ["date", "city"],
+      "layer": "agg",
+      "columns": {
+        "date": "date",
+        "city": "string",
+        "gmv": "decimal",
+        "order_count": "int8"
+      }
+    },
+    {
+      "name": "dim_store",
+      "kind": "dimension",
+      "key": "store_id",
+      "columns": {
+        "store_id": "string",
+        "store_name": "string",
+        "city": "string",
+        "city_name": "string",
+        "region": "string",
+        "store_type": "string",
+        "open_date": "date"
+      }
+    },
+    {
+      "name": "dim_product",
+      "kind": "dimension",
+      "key": "product_id",
+      "columns": {
+        "product_id": "string",
+        "category": "string",
+        "product_type": "string"
+      }
+    },
+    {
+      "name": "dim_date",
+      "kind": "dimension",
+      "key": "date",
+      "columns": {
+        "date": "date",
+        "year": "int",
+        "month": "int",
+        "is_holiday": "int8"
+      }
+    },
+    {
+      "name": "dim_campaign",
+      "kind": "dimension",
+      "key": "campaign_id",
+      "columns": {
+        "campaign_id": "string",
+        "campaign_name": "string",
+        "campaign_type": "string"
+      }
+    }
+  ],
+  "relations": [
+    {"from": "dwd_order_di", "to": "dim_store", "on": "store_id", "cardinality": "many_to_one"},
+    {"from": "dwd_order_di", "to": "dim_product", "on": "product_id", "cardinality": "many_to_one"},
+    {"from": "dwd_order_di", "to": "dim_date", "on": ["order_date", "date"], "cardinality": "many_to_one"},
+    {"from": "dwd_settle_di", "to": "dim_store", "on": "store_id", "cardinality": "many_to_one"},
+    {"from": "dwd_settle_di", "to": "dim_date", "on": ["settle_date", "date"], "cardinality": "many_to_one"},
+    {"from": "dws_promo_di", "to": "dim_store", "on": "store_id", "cardinality": "many_to_one"},
+    {"from": "dws_promo_di", "to": "dim_campaign", "on": "campaign_id", "cardinality": "many_to_one"},
+    {"from": "dws_promo_di", "to": "dim_date", "on": ["promo_date", "date"], "cardinality": "many_to_one"},
+    {"from": "ads_gmv_1d", "to": "dim_store", "on": "city", "cardinality": "one_to_many"}
+  ],
+  "metrics": [
+    {
+      "name": "gmv",
+      "display": "成交额",
+      "domain": "ord",
+      "aliases": ["成交额", "销售额", "GMV", "jiaoyie", "xsje"],
+      "do_not": ["含退款、未扣优惠券；与 gmv_settle 不是同一个口径"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": true,
+      "ambiguity_group": "gmv_family",
+      "default_in_group": false,
+      "bindings": [
+        {"table": "dwd_order_di", "expr": "SUM({f}.pay_amount)", "requires": ["{f}.is_valid = 1"]},
+        {"table": "ads_gmv_1d", "expr": "SUM({f}.gmv)", "requires": []}
+      ]
+    },
+    {
+      "name": "gmv_settle",
+      "display": "成交额",
+      "domain": "settle",
+      "aliases": ["成交额", "结算额", "GMV", "jsje"],
+      "do_not": ["不含退款，来自结算单；与 gmv 的差异通常在两三个百分点"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": false,
+      "ambiguity_group": "gmv_family",
+      "default_in_group": false,
+      "bindings": [
+        {"table": "dwd_settle_di", "expr": "SUM({f}.settle_amount)", "requires": ["{f}.status = 'settled'"]}
+      ]
+    },
+    {
+      "name": "order_cnt",
+      "display": "订单数",
+      "domain": "ord",
+      "aliases": ["订单数", "单量", "order_cnt"],
+      "do_not": ["剔除无效单"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": true,
+      "ambiguity_group": "order_family",
+      "default_in_group": true,
+      "bindings": [
+        {"table": "dwd_order_di", "expr": "COUNT(DISTINCT {f}.order_id)", "requires": ["{f}.is_valid = 1"]},
+        {"table": "ads_gmv_1d", "expr": "SUM({f}.order_count)", "requires": []}
+      ]
+    },
+    {
+      "name": "order_num",
+      "display": "订单数",
+      "domain": "ord",
+      "aliases": ["订单数", "单量"],
+      "do_not": ["历史口径，未剔除无效单，仅对账用"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": false,
+      "ambiguity_group": "order_family",
+      "default_in_group": false,
+      "bindings": [
+        {"table": "dwd_order_di", "expr": "COUNT({f}.order_id)", "requires": []}
+      ]
+    },
+    {
+      "name": "ord_qty",
+      "display": "商品件数",
+      "domain": "ord",
+      "aliases": ["件数", "销量", "ord_qty"],
+      "do_not": ["是件数不是订单数，名字有误导"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": true,
+      "bindings": [
+        {"table": "dwd_order_di", "expr": "SUM({f}.quantity)", "requires": ["{f}.is_valid = 1"]}
+      ]
+    },
+    {
+      "name": "refund_amount",
+      "display": "退款额",
+      "domain": "ord",
+      "aliases": ["退款额", "退款"],
+      "do_not": [],
+      "visibility_scope": ["role:finance", "role:hq"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": true,
+      "bindings": [
+        {"table": "dwd_order_di", "expr": "SUM({f}.refund_amount)", "requires": []}
+      ]
+    },
+    {
+      "name": "avg_order_amount",
+      "display": "客单价",
+      "domain": "ord",
+      "aliases": ["客单价", "平均订单金额"],
+      "do_not": ["分母含退款单，不要用 gmv / order_cnt 手工相除来复算"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": true,
+      "bindings": [
+        {"table": "dwd_order_di", "expr": "AVG({f}.pay_amount)", "requires": ["{f}.is_valid = 1"]}
+      ]
+    },
+    {
+      "name": "same_store_gmv",
+      "display": "同店成交额",
+      "domain": "ord",
+      "aliases": ["同店成交额", "同店增长"],
+      "do_not": ["仅限开业满 365 天的门店，结果不能与 gmv 直接比较"],
+      "visibility_scope": ["role:hq", "role:region_manager"],
+      "dimension_policy": {"mode": "only", "dimensions": ["city", "region"]},
+      "supports_compare": true,
+      "bindings": [
+        {"table": "dwd_order_di", "expr": "SUM({f}.pay_amount)", "requires": ["{f}.is_valid = 1"]}
+      ],
+      "scoped_filters": [
+        {"table": "dim_store", "on": "store_id", "condition": "dim_store.open_date <= {period_start} - 365d"}
+      ]
+    },
+    {
+      "name": "settle_amount",
+      "display": "结算金额",
+      "domain": "settle",
+      "aliases": ["结算金额", "到账额"],
+      "do_not": ["只算 status='settled' 的单"],
+      "visibility_scope": ["role:finance", "role:hq"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": true,
+      "bindings": [
+        {"table": "dwd_settle_di", "expr": "SUM({f}.settle_amount)", "requires": ["{f}.status = 'settled'"]}
+      ]
+    },
+    {
+      "name": "settle_fee",
+      "display": "平台服务费",
+      "domain": "settle",
+      "aliases": ["服务费", "平台服务费"],
+      "do_not": ["按结算口径计，不是按订单口径"],
+      "visibility_scope": ["role:finance"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": false,
+      "bindings": [
+        {"table": "dwd_settle_di", "expr": "SUM({f}.fee_amount)", "requires": ["{f}.status = 'settled'"]}
+      ]
+    },
+    {
+      "name": "promo_amount",
+      "display": "营销优惠金额",
+      "domain": "mkp",
+      "aliases": ["优惠金额", "券金额", "quan_jine"],
+      "do_not": ["含平台券和商家券，分不开"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "all"},
+      "supports_compare": true,
+      "bindings": [
+        {"table": "dws_promo_di", "expr": "SUM({f}.use_amount)", "requires": []}
+      ]
+    },
+    {
+      "name": "promo_order_cnt",
+      "display": "营销带动订单数",
+      "domain": "mkp",
+      "aliases": ["带动订单", "活动单量"],
+      "do_not": ["按活动归因，与 order_cnt 不可相加"],
+      "visibility_scope": ["*"],
+      "dimension_policy": {"mode": "except", "dimensions": ["category"]},
+      "supports_compare": true,
+      "bindings": [
+        {"table": "dws_promo_di", "expr": "SUM({f}.order_cnt)", "requires": []}
+      ]
+    }
+  ],
+  "properties": [
+    {
+      "name": "city",
+      "display": "城市",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["城市"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_store", "column": "city"},
+        {"table": "ads_gmv_1d", "column": "city"}
+      ]
+    },
+    {
+      "name": "city_name",
+      "display": "城市名称",
+      "kind": "string",
+      "domain": "ord",
+      "aliases": ["城市名"],
+      "do_not": ["是城市名称文本，不是 city 编码，不要混用"],
+      "bindings": [
+        {"table": "dim_store", "column": "city_name"}
+      ]
+    },
+    {
+      "name": "store",
+      "display": "门店",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["门店", "店铺"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_store", "column": "store_id"},
+        {"table": "dwd_order_di", "column": "store_id"}
+      ]
+    },
+    {
+      "name": "region",
+      "display": "大区",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["大区"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_store", "column": "region"}
+      ]
+    },
+    {
+      "name": "store_type",
+      "display": "门店类型",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["门店类型"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_store", "column": "store_type"}
+      ]
+    },
+    {
+      "name": "category",
+      "display": "品类",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["品类"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_product", "column": "category"}
+      ]
+    },
+    {
+      "name": "product_type",
+      "display": "商品类型",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["商品类型"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_product", "column": "product_type"}
+      ]
+    },
+    {
+      "name": "channel",
+      "display": "渠道",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["渠道"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dwd_order_di", "column": "channel"}
+      ]
+    },
+    {
+      "name": "order_date",
+      "display": "下单日期",
+      "kind": "time",
+      "domain": "ord",
+      "aliases": ["下单日期"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dwd_order_di", "column": "order_date"},
+        {"table": "ads_gmv_1d", "column": "date"}
+      ]
+    },
+    {
+      "name": "settle_date",
+      "display": "结算日期",
+      "kind": "time",
+      "domain": "settle",
+      "aliases": ["结算日期"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dwd_settle_di", "column": "settle_date"}
+      ]
+    },
+    {
+      "name": "campaign_type",
+      "display": "活动类型",
+      "kind": "enum",
+      "domain": "mkp",
+      "aliases": ["活动类型"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_campaign", "column": "campaign_type"}
+      ]
+    },
+    {
+      "name": "is_holiday",
+      "display": "是否节假日",
+      "kind": "enum",
+      "domain": "ord",
+      "aliases": ["是否节假日"],
+      "do_not": [],
+      "bindings": [
+        {"table": "dim_date", "column": "is_holiday"}
+      ]
+    }
+  ]
+}
